@@ -1,0 +1,7 @@
+{
+  "name": "Taiwan Campervan AI Navigator",
+  "description": "An AI-powered trip planner for campervan adventures in Taiwan. It generates multi-day itineraries with points of interest, driving routes, and essential utility stops using Gemini and Google Maps.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
