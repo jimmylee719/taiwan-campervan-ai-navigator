@@ -11,39 +11,6 @@ const initialMessage: Message = {
   content: 'Welcome! Please describe your dream campervan trip in Taiwan. **Crucially, include the start and end dates** so I can provide weather forecasts. For example: "Plan a 7-day trip from Taipei to Kaohsiung, starting July 22nd, 2024, focusing on coastal views and seafood."',
 };
 
-// Helper function to parse potentially malformed JSON from the AI
-const parseAndCleanJson = <T,>(jsonString: string): T | null => {
-  try {
-    // First, try to parse the string as-is
-    return JSON.parse(jsonString);
-  } catch (e) {
-    console.warn("Initial JSON.parse failed. Attempting to clean and re-parse.", e);
-    try {
-      // Attempt to fix common errors:
-      // 1. Unquoted property names.
-      // 2. Trailing commas in objects or arrays.
-      const cleanedString = jsonString
-        .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":') // Add quotes to keys
-        .replace(/,\s*([}\]])/g, '$1'); // Remove trailing commas
-
-      return JSON.parse(cleanedString);
-    } catch (e2) {
-      console.error("Failed to parse JSON even after cleaning.", e2);
-      // As a last resort, the AI might have added extra text after the JSON.
-      // Let's try to extract just the main array.
-      const match = jsonString.match(/(\[.*\])/s);
-      if (match && match[1]) {
-        try {
-          return JSON.parse(match[1]);
-        } catch (e3) {
-          console.error("Final attempt to parse extracted array failed.", e3);
-        }
-      }
-      return null;
-    }
-  }
-};
-
 const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([initialMessage]);
   const [prompt, setPrompt] = useState<string>('');
@@ -52,39 +19,6 @@ const App: React.FC = () => {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [pois, setPois] = useState<Poi[]>([]);
   const [modalContent, setModalContent] = useState<'about' | 'privacy' | 'safety' | null>(null);
-
-  const parseWaypointsFromResponse = (text: string): Waypoint[] => {
-    const match = text.match(/WAYPOINTS:\s*(\[.*?\])/s);
-    if (match && match[1]) {
-      const parsed = parseAndCleanJson<Waypoint[]>(match[1]);
-      if (parsed && Array.isArray(parsed) && parsed.every(item => typeof item === 'object' && item !== null && 'name' in item && 'lat' in item && 'lng' in item)) {
-        return parsed;
-      } else {
-        console.error("Failed to parse or validate WAYPOINTS:", parsed);
-        setError("Failed to parse waypoints from AI response or data was invalid.");
-      }
-    }
-    return [];
-  };
-
-  const parsePoisFromResponse = (text: string): Poi[] => {
-    const match = text.match(/POIS:\s*(\[.*?\])/s);
-    if (match && match[1]) {
-        const parsed = parseAndCleanJson<Poi[]>(match[1]);
-        if (parsed && Array.isArray(parsed) && parsed.every(item => typeof item === 'object' && item !== null && 'name' in item && 'address' in item && 'lat' in item && 'lng' in item)) {
-            return parsed;
-        } else {
-            console.error("Failed to parse or validate POIs:", parsed);
-            setError("Failed to parse points of interest from AI response or data was invalid.");
-        }
-    }
-    return [];
-  };
-
-  const parseStartDateFromResponse = (text: string): string | null => {
-    const match = text.match(/START_DATE:\s*(\d{4}-\d{2}-\d{2})/);
-    return match ? match[1] : null;
-  };
 
   const addWeatherToItinerary = async (itineraryText: string, waypoints: Waypoint[], startDateStr: string) => {
     const startDate = new Date(startDateStr);
@@ -157,11 +91,10 @@ const App: React.FC = () => {
 
     try {
       const position = await getCurrentPosition();
-      const rawResponse = await generateItinerary(prompt, position);
+      // FIX: Call the updated service which now returns a structured object.
+      const response = await generateItinerary(prompt, position);
       
-      const startDate = parseStartDateFromResponse(rawResponse);
-      const newWaypoints = parseWaypointsFromResponse(rawResponse);
-      const newPois = parsePoisFromResponse(rawResponse);
+      const { itinerary, startDate, waypoints: newWaypoints, pois: newPois } = response;
 
       setWaypoints(newWaypoints);
       setPois(newPois);
@@ -169,13 +102,13 @@ const App: React.FC = () => {
       // Add the message first without weather for a quick response
       const initialAssistantMessage: Message = {
         role: 'assistant',
-        content: rawResponse,
+        content: itinerary,
       };
       setMessages(prev => [...prev, initialAssistantMessage]);
 
       // Then, asynchronously fetch weather and update the message
       if (startDate && newWaypoints.length > 0) {
-          addWeatherToItinerary(rawResponse, newWaypoints, startDate).then(contentWithWeather => {
+          addWeatherToItinerary(itinerary, newWaypoints, startDate).then(contentWithWeather => {
             const finalAssistantMessage: Message = {
                 role: 'assistant',
                 content: contentWithWeather,
